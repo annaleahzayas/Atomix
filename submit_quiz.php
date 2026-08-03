@@ -1,0 +1,114 @@
+<?php
+header("Content-Type: application/json; charset=utf-8");
+
+$conn = new mysqli("localhost", "root", "", "atomix_db");
+if ($conn->connect_error) {
+  http_response_code(500);
+  echo json_encode(["success"=>false, "message"=>"Database connection failed"]);
+  exit;
+}
+$conn->set_charset("utf8mb4");
+
+$user_id = isset($_POST['user_id']) ? intval($_POST['user_id']) : 0;
+$access_code = isset($_POST['access_code']) ? trim($_POST['access_code']) : '';
+$answers_json = isset($_POST['answers']) ? $_POST['answers'] : '';
+
+if ($user_id <= 0 || $access_code === '' || $answers_json === '') {
+  echo json_encode(["success"=>false, "message"=>"user_id, access_code and answers required"]);
+  exit;
+}
+
+$answers = json_decode($answers_json, true);
+if (!is_array($answers)) {
+  echo json_encode(["success"=>false, "message"=>"Invalid answers format"]);
+  exit;
+}
+
+// validate access code -> quiz
+$stmt = $conn->prepare("SELECT quiz_id FROM game_access_codes WHERE access_code = ? AND is_active = 1 LIMIT 1");
+$stmt->bind_param("s", $access_code);
+$stmt->execute();
+$res = $stmt->get_result();
+if ($res->num_rows === 0) {
+  echo json_encode(["success"=>false, "message"=>"Access code invalid or inactive"]);
+  exit;
+}
+$row = $res->fetch_assoc();
+$quiz_id = (int)$row['quiz_id'];
+
+// create student_quiz entry
+$insert = $conn->prepare("INSERT INTO student_quizzes (student_id, quiz_id, score, status, taken_at) VALUES (?, ?, 0, 'submitted', NOW())");
+$insert->bind_param("ii", $user_id, $quiz_id);
+$insert_ok = $insert->execute();
+if (!$insert_ok) {
+  echo json_encode(["success"=>false, "message"=>"Failed to create student quiz record"]);
+  exit;
+}
+$student_quiz_id = $conn->insert_id;
+$insert->close();
+
+// calculate score for MCQ by checking quiz_choices.is_correct
+$score = 0;
+foreach ($answers as $ans) {
+  $question_id = isset($ans['question_id']) ? intval($ans['question_id']) : 0;
+  $selected_choice_id = isset($ans['selected_choice_id']) ? intval($ans['selected_choice_id']) : 0;
+  $answer_text = isset($ans['answer_text']) ? $ans['answer_text'] : null;
+
+  // fetch question type to decide grading strategy
+  $qtype = null;
+  $qt = $conn->prepare("SELECT question_type FROM questions_master WHERE question_id = ? LIMIT 1");
+  $qt->bind_param("i", $question_id);
+  $qt->execute();
+  $qres = $qt->get_result();
+  if ($qres && $qres->num_rows > 0) {
+    $qrow = $qres->fetch_assoc();
+    $qtype = $qrow['question_type'];
+  }
+  $qt->close();
+
+  // Save answer row (selected_choice_id may be 0 for short_answer)
+  $s = $conn->prepare("INSERT INTO student_answers (student_quiz_id, question_id, selected_choice_id) VALUES (?, ?, ?)");
+  $s->bind_param("iii", $student_quiz_id, $question_id, $selected_choice_id);
+  $s->execute();
+  $s->close();
+
+  if ($selected_choice_id > 0) {
+    $cstmt = $conn->prepare("SELECT is_correct FROM quiz_choices WHERE choice_id = ? LIMIT 1");
+    $cstmt->bind_param("i", $selected_choice_id);
+    $cstmt->execute();
+    $cres = $cstmt->get_result();
+    if ($cres->num_rows > 0) {
+      $crow = $cres->fetch_assoc();
+      if ((int)$crow['is_correct'] === 1) {
+        $score += 1; // one point per correct choice; adjust weighting if needed
+      }
+    }
+    $cstmt->close();
+  }
+  else if (!empty($answer_text)) {
+    // attempt to grade by matching choice text (useful for true/false fallback)
+    // only attempt if question is not short_answer
+    if ($qtype !== null && $qtype !== 'short_answer') {
+      $tstmt = $conn->prepare("SELECT is_correct FROM quiz_choices WHERE question_id = ? AND LOWER(choice_text) = LOWER(?) LIMIT 1");
+      $tstmt->bind_param("is", $question_id, $answer_text);
+      $tstmt->execute();
+      $tres = $tstmt->get_result();
+      if ($tres && $tres->num_rows > 0) {
+        $trow = $tres->fetch_assoc();
+        if ((int)$trow['is_correct'] === 1) $score += 1;
+      }
+      $tstmt->close();
+    }
+    // if short_answer, leave ungraded for manual review
+  }
+}
+
+// update student_quizzes with computed score
+$up = $conn->prepare("UPDATE student_quizzes SET score = ?, status = 'submitted', submitted_at = NOW() WHERE student_quiz_id = ? LIMIT 1");
+$up->bind_param("ii", $score, $student_quiz_id);
+$up->execute();
+$up->close();
+
+echo json_encode(["success"=>true, "message"=>"Quiz submitted", "score"=>$score, "student_quiz_id"=>$student_quiz_id]);
+
+$conn->close();

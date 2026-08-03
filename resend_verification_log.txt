@@ -1,0 +1,10 @@
+2026-07-31 18:00:48 email=annaleahzayas2@gmail.com code=850895 sent=0
+2026-07-31 18:09:16 email=annaleahzayas2@gmail.com code=421118 sent=0 error=SMTP password not accepted: 535-5.7.8 Username and Password not accepted. For more information, go to
+535 5.7.8  https://support.google.com/mail/?p=BadCredentials d9443c01a7336-2d04b0eb5a3sm7342915ad.46 - gsmtp
+2026-07-31 18:11:45 email=annaleahzayas2@gmail.com code=386147 sent=0 error=SMTP password not accepted: 535-5.7.8 Username and Password not accepted. For more information, go to
+535 5.7.8  https://support.google.com/mail/?p=BadCredentials d9443c01a7336-2d04b120f2fsm7196975ad.64 - gsmtp
+2026-07-31 18:21:52 email=annaleahzayas2@gmail.com code=940366 sent=1 error=PHP mail() failed or is not configured.
+2026-07-31 18:22:33 email=annaleahzayas2@gmail.com code=531391 sent=1 error=PHP mail() failed or is not configured.
+2026-07-31 18:26:12 email=annaleahzayas2@gmail.com code=193824 sent=1 error=PHP mail() failed or is not configured.
+2026-07-31 18:26:48 email=annaleahzayas2@gmail.com code=081325 sent=1 error=PHP mail() failed or is not configured.
+2026-08-02 18:28:04 email=annaleahzayas2@gmail.com code=579412 sent=1 error=PHP mail() failed or is not configured.

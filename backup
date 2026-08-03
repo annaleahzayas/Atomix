@@ -1,0 +1,77 @@
+<?php
+header("Content-Type: application/json; charset=UTF-8");
+
+$conn = new mysqli("localhost", "root", "", "atomix_db");
+if ($conn->connect_error) {
+    echo json_encode(["status" => "error", "message" => "DB connection failed"]);
+    exit;
+}
+$conn->set_charset("utf8mb4");
+
+$access_code = trim($_POST["access_code"] ?? "");
+$student_id  = (int)($_POST["student_id"] ?? 0);
+
+if ($access_code === "" || $student_id <= 0) {
+    echo json_encode(["status" => "error", "message" => "access_code and student_id are required"]);
+    exit;
+}
+
+/**
+ * 1) Validate student exists
+ */
+$st = $conn->prepare("SELECT student_id FROM students WHERE student_id = ? LIMIT 1");
+$st->bind_param("i", $student_id);
+$st->execute();
+$stRes = $st->get_result();
+if (!$stRes->fetch_assoc()) {
+    echo json_encode(["status" => "error", "message" => "Student not found"]);
+    exit;
+}
+
+/**
+ * 2) Validate access code is active and get quiz + teacher
+ * Also fetch stage_id + chapter_id for navigation.
+ */
+$sql = "
+SELECT
+    gac.code_id,
+    gac.teacher_id,
+    gac.quiz_id,
+    q.stage_id,
+    s.chapter_id
+FROM game_access_codes gac
+JOIN quizzes q ON q.quiz_id = gac.quiz_id
+LEFT JOIN stages s ON s.stage_id = q.stage_id
+WHERE gac.access_code = ?
+  AND gac.is_active = 1
+LIMIT 1
+";
+
+$stmt = $conn->prepare($sql);
+$stmt->bind_param("s", $access_code);
+$stmt->execute();
+$res = $stmt->get_result();
+
+$row = $res->fetch_assoc();
+if (!$row) {
+    echo json_encode(["status" => "invalid", "message" => "Invalid or inactive access code"]);
+    exit;
+}
+
+$teacher_id = (int)$row["teacher_id"];
+$quiz_id    = (int)$row["quiz_id"];
+$stage_id   = isset($row["stage_id"]) ? (int)$row["stage_id"] : 0;
+$chapter_id = isset($row["chapter_id"]) ? (int)$row["chapter_id"] : 0;
+
+/**
+ * 4) SUCCESS response
+ */
+echo json_encode([
+    "status" => "success",
+    "message" => "Access code valid",
+    "code_id" => (int)$row["code_id"],
+    "teacher_id" => $teacher_id,
+    "quiz_id" => $quiz_id,
+    "stage_id" => $stage_id,
+    "chapter_id" => $chapter_id
+]);
